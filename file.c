@@ -5,16 +5,7 @@
  * interactions must go through.
  */
 
-/*
-TODO: change file data to be stored as a linked list??? maybe 
- */
-
-#define FILENAME_LIM ( 255 ) /* Max length of filenames in most filesystems */
-#define FILE_MIN_SZ  ( 512 ) /* Initial size allocated to f.data (in chars) */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "file.h"
 
 /*
  * unsigned int is_printable()
@@ -30,23 +21,7 @@ static unsigned int is_printable( char c )
         return 0;
 }
 
-/**
- * struct File
- * ----------
- * Abstract of a file for use with the program. Stores data about the file
- * which can be modified with functions described below.
- * ----------
- * Initialize with init_file(), free with free_file()
- * After initialization, populate file with data with populate_file()
- * Modify file contents with insert_char() and overwrite_char().
- * save file contents to disk with export_file()
- */
-struct File
-{
-        char* filename;
-        char* data;
-        unsigned int sz;
-};
+/** File object methods below */
 
 /*
  * struct File init_file()
@@ -69,7 +44,8 @@ struct File init_file( char* filename )
         {
                 fprintf( stderr, "FATAL: Failed malloc() in init_file()!\n" );
         }
-        f.sz = FILE_MIN_SZ;
+        f.sz_alloc = FILE_MIN_SZ;
+        f.sz_actual = 0;
 
         /* Copy filename to object */
         strcpy( f.filename, filename );
@@ -80,13 +56,15 @@ struct File init_file( char* filename )
 /*
  * void free_file()
  * ----------
- * Frees memory allocated to a given File object <f>.
+ * Frees memory allocated to a given File object <f> and set all other values
+ * to 0.
  */
 void free_file( struct File* f )
 {
         free( f->data );
         free( f->filename );
-        f->sz = 0;
+        f->sz_alloc = 0;
+        f->sz_actual = 0;
 }
 
 /*
@@ -97,8 +75,8 @@ void free_file( struct File* f )
  */
 void resize_file( struct File* f )
 {
-        f->sz >>= 1;
-        if (  ( f->data = (char*)realloc( f->data, f->sz * sizeof(char) ) )
+        f->sz_alloc >>= 1;
+        if (  ( f->data = realloc( f->data, f->sz_alloc * sizeof(char) ) )
               == NULL  )
         {
                 fprintf( stderr, "FATAL: Failed malloc() in resize_file()!\n" );
@@ -112,20 +90,72 @@ void resize_file( struct File* f )
  * a File object <f>. Copies the data character by character into f.data,
  * ignoring any non-printable characters (except for newline).
  */
-void populate_file( struct File* f, char* filename )
+void populate_file( struct File* f )
 {
-        FILE* fptr = fopen( filename, "r" );
+        FILE* fptr = fopen( f->filename, "w+" );
 
         char c;
-        unsigned int index = 0;
         while ( !feof( fptr ) )
         {
                 c = fgetc( fptr );
                 if ( is_printable( c ) )
                 {
-                        f->data[index++] = c;
-                        if ( index == f->sz )
+                        f->data[f->sz_actual++] = c;
+                        if ( f->sz_actual == f->sz_alloc )
                                 resize_file( f );
                 }
         }
+
+        fclose( fptr );
+}
+
+/*
+ * void export_file()
+ * ----------
+ * For a given pointer to a File object <f>, write f.data to a file called
+ * f.filename.
+ */
+void export_file( struct File* f )
+{
+        FILE* fptr = fopen( f->filename, "w" );
+
+        for ( unsigned int i = 0; i < f->sz_actual; i++ )
+        {
+                fputc( f->data[i], fptr );
+        }
+        fclose( fptr );
+}
+
+/*
+ * void overwrite_char()
+ * ----------
+ * Set the character at a given index <index> in the File <f> to the character
+ * <ch>. Counterpart to insert_char().
+ */
+void overwrite_char( struct File* f, unsigned int index, char ch )
+{
+        if ( index == f->sz_actual )
+        {
+                f->sz_actual++;
+                if ( f->sz_actual >= f->sz_alloc )
+                        resize_file( f );
+                
+                f->data[index] = ch;
+        }
+        else if ( index > f->sz_actual )
+        {} //do nothing, too far oob
+        else
+        {
+                f->data[index] = ch;
+        }
+}
+
+/*
+ * void insert_char()
+ * ----------
+ * 
+ */
+void insert_char( struct File* f, unsigned int index, char ch )
+{
+        //TODO: this function
 }
