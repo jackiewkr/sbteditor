@@ -75,7 +75,7 @@ void free_file( struct File* f )
  */
 void resize_file( struct File* f )
 {
-        f->sz_alloc >>= 1;
+        f->sz_alloc <<= 1;
         if (  ( f->data = realloc( f->data, f->sz_alloc * sizeof(char) ) )
               == NULL  )
         {
@@ -92,7 +92,13 @@ void resize_file( struct File* f )
  */
 void populate_file( struct File* f )
 {
-        FILE* fptr = fopen( f->filename, "w+" );
+        FILE* fptr;
+        if ( access( f->filename, F_OK ) != 0 )
+        {
+                fptr = fopen( f->filename, "w" );
+                fclose( fptr );
+        }
+        fptr = fopen( f->filename, "r" );
 
         char c;
         while ( !feof( fptr ) )
@@ -101,8 +107,10 @@ void populate_file( struct File* f )
                 if ( is_printable( c ) )
                 {
                         f->data[f->sz_actual++] = c;
-                        if ( f->sz_actual == f->sz_alloc )
+                        while ( f->sz_actual >= f->sz_alloc )
+                        {
                                 resize_file( f );
+                        }
                 }
         }
 

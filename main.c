@@ -8,7 +8,9 @@
  * See LICENSE.txt for licensing information
  */
 
+#include <curses.h>
 #include "file.h"
+#include "screen.h"
 
 /*
  * void help()
@@ -39,13 +41,41 @@ int main( int argc, char* argv[] )
 
         populate_file( &f );
 
-        unsigned int close = 0;
+        /* Initialize screen */
+        struct Screen s = init_screen();
 
+        int ch;
+        unsigned int close = 0;
+        unsigned int offset = 0;
         while ( !close )
         {
-                draw_screen();
+                ch =  draw_screen( &s, &f, offset );
+
+                /* Input parsing */
+                switch ( ch )
+                {
+                case KEY_UP:
+                        if ( offset != 0 )
+                        {
+                                offset--;
+                        }
+                        break;
+                case KEY_DOWN:
+                        offset++;
+                        break;
+                case KEY_F(10):
+                        close++;
+                        break;
+                case KEY_F(1):
+                        export_file( &f );
+                        break;
+                default:
+                        break;
+                }
         }
-        
+        free_screen( &s );
+        free_file( &f );
+        fprintf( stderr, "Closing...\n" );
         return 0;
 }
 
