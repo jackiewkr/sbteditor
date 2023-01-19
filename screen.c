@@ -1,102 +1,173 @@
 /**
  * screen.c
- * ----------
- * Library that handles all drawing to the screen using curses.
- * 
+ * ========
+ * Abstraction of the screen and parts of the editor logic.
+ *
+ * Licensed under the GNU GPL v3 license. See LICENSE for more details.
+ * ----------------------------------------------------------------------------
  */
 
-#include "screen.h"
+#include <stdlib.h>
+#include <ncurses.h>
+
+#include "file.h"
+
+static int is_printable( char ch )
+{
+        if ( ch < 32 || ch > 126 )
+                return 0;
+        return 1;
+}
 
 /*
- * struct Screen init_screen()
- * ----------
- * Initializes a Screen object and initializes all necessary ncurses options.
+ * clamp()
+ * =======
+ * Simple function to clamp an integer between two bounds (inclusive).
  */
-struct Screen init_screen()
+static int clamp( int val, int min,int max )
 {
-        struct Screen s;
-        
-        /* Ncurses stuff */
+        if ( val < min )
+                return min;
+        if ( val > max )
+                return max;
+        return val;
+}
+
+static void enter_ncurses()
+{
         initscr();
         noecho();
         keypad( stdscr, TRUE );
-        cbreak();
-
-        /* Ncurses colour stuff */
-        //TODO: colour highlighting
-
-        /* Initialize Screen object */
-        getmaxyx( stdscr, s.rows, s.cols );
-
-        return s;
+        cbreak();        
 }
 
-void free_screen( struct Screen* s )
+static void exit_ncurses()
 {
-        /* Set screen dims to 0  */
-        s->rows = 0;
-        s->cols = 0;
-
-        /* Undoing ncurses stuff  */
         echo();
         nocbreak();
         endwin();
 }
 
-/** DRAWING FUNCS BELOW */
-
-#if 0
-static void draw_file( struct File* f )
+struct Screen
 {
-        /* Move to top-left of terminal */
-        move( 0, 0 );
-        for ( unsigned int i = 0; i < f->sz_actual; i++ )
-        {
-                addch( f->data[i] );       
-        }
-}
-#endif
+        int w_rows;
+        int w_cols;
+        int c_x;
+        int c_y;
+        int offset;
+        int mode; //0 for insert, 1 for overwrite
+};
 
-static void draw_file( struct File* f, unsigned int start_line,
-                       unsigned int end_line )
+struct Screen* s_construct()
 {
-        unsigned int line_counter = 0;
-        unsigned int index = 0;
-
-        while (start_line > line_counter && index < f->sz_actual )
-        {
-                if ( f->data[index++] == '\n' )
-                {
-                        line_counter++;
-                }
-        }
-
-        /* Move to top-left of terminal */
-        move( 0, 0 );
-        for ( unsigned int i = index; i < f->sz_actual; i++ )
-        {
-                if (line_counter < end_line )
-                {
-                        addch( f->data[i] );
-
-                        if ( f->data[i] == '\n' )
-                        {
-                                line_counter++;
-                        }
-                }
-        }
+        struct Screen* s = malloc( sizeof(struct Screen) );
+        s->c_x = 0;
+        s->c_y = 0;
+        s->offset = 0;
+        
+        /* Enter ncurses magic */
+        enter_ncurses();
+        
+        /* Get initial window dims */
+        
+        return s;
 }
 
-int draw_screen( struct Screen* s, struct File* f, unsigned int offset )
+void s_destruct( struct Screen* s )
 {
-        getmaxyx( stdscr, s->rows, s->cols );
+        /* Exit ncurses magic */
+        exit_ncurses();
 
-        clear();
-        draw_file( f, offset, ( s->rows + offset - 1 ) );
+        free( s );
+}
+
+static void draw_file( struct Screen* s, struct File* f )
+{
+        move( 0, 0 );
+        int y = 0;
+        for ( int i = s->offset;
+              i < f_getMaxLines( f ) && i < ( s->w_rows + s->offset - 1 );
+              i++ )
+        {
+                printw( "%3i %s", i, f_getLine( f, i ) );
+                move( ++y, 0 );
+        }
+
+        move( s->w_rows, 0 );
+        printw( "CURSOR: (%i,%i)", s->c_x, s->c_y + s->offset );
+        
+}
+
+int s_update( struct Screen* s, struct File* f )
+{
+        getmaxyx( stdscr, s->w_rows, s->w_cols );
+
+        erase();
+        draw_file( s, f );
+
+        move( s->c_y, s->c_x + 4 );
+        
         refresh();
+        return getch();
+}
 
-        int ch;
-        ch = getch();
+void s_moveCursor( struct Screen* s, struct File* f, int y, int x )
+{
+        /* move cursor */
+        if( y > 0 )
+        {
+                s->c_y++;
+                if ( s->c_y >= s->w_rows )
+                {
+                        s->offset++;
+                        s->c_y--;
+                }
+        } else if ( y < 0 )
+        {
+                s->c_y--;
+                if ( s->c_y < 0 )
+                {
+                        s->offset--;
+                        s->c_y++;
+                }
+        }
 
-        return ch;
+        if ( x > 0 )
+        {
+                s->c_x++;
+        } else if ( x < 0 && s->c_x != 0 )
+        {
+                s->c_x--;
+        }
+
+        /* fix offset and x-pos */
+        
+        s->offset = clamp( s->offset, 0, f_getMaxLines( f ) - 1 );
+        s->c_x = clamp( s->c_x, 0, f_getLineLen( f, s->offset + s->c_y ) );
+
+}
+
+void s_writeChar( struct Screen* s, struct File* f, int ch )
+{
+        if ( is_printable( ch ) )
+        {
+                f_insertChar( f, s->offset + s->c_y, s->c_x, ch);
+                s_moveCursor( s, f, 0, 1 );
+        } else if ( ch == 10 )
+        {
+                f_insertChar( f, s->offset + s->c_y, s->c_x, ch );
+                s->c_x = 0;
+                s_moveCursor( s, f, 1, 0 );
+        } else if ( ch == 127 )
+        {
+                f_insertChar( f, s->offset + s->c_y, s->c_x, ch );
+                if ( s->c_x == 0 )
+                {
+                        s_moveCursor( s, f, -1, 0 );
+                        s->c_x = f_getLineLen( f, s->offset + s->c_y ) - 1;
+                } else
+                {
+                        s_moveCursor( s, f, 0, -1 );
+                }
+        }
 }

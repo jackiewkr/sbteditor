@@ -2,38 +2,24 @@
 #define SCREEN_H__
 
 /**
- * screen.c
- * ----------
- * Library that handles all drawing to the screen using curses.
- * 
+ * screen.h
+ * ========
+ * Abstraction of the screen and parts of the editor logic.
+ *
+ * Licensed under the GNU GPL v3 license. See LICENSE for more details.
+ * ----------------------------------------------------------------------------
  */
 
-#include <curses.h>
-#include "file.h"
+struct Screen;
 
-/**
- * struct Screen
- * ----------
- * Abstraction of a screen. Only stores the dimensions of the current screen.
- * All other bits of the screen are handled by ncurses
- */
-struct Screen
-{
-        int rows;
-        int cols;
-};
+struct Screen* s_construct();
 
-/*
- * struct Screen init_screen()
- * ----------
- * Initializes a Screen object and initializes all necessary ncurses options.
- */
-struct Screen init_screen();
+void s_destruct( struct Screen* s );
 
-void free_screen( struct Screen* s );
+int s_update( struct Screen* s, struct File* f );
 
-/** DRAWING FUNCS BELOW */
+void s_moveCursor( struct Screen* s, struct File* f, int y, int x );
 
-int draw_screen( struct Screen* s, struct File* f, unsigned int offset );
+void s_writeChar( struct Screen* s, struct File* f, int ch );
 
 #endif //SCREEN_H__
