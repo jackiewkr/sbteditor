@@ -1,6 +1,6 @@
 CC := clang
 CFLAGS := -Wall -pedantic
-INCLUDES := main.c libs/file.c
+INCLUDES := main.c libs/file.c libs/window.c
 LDFLAGS := -lncurses
 DEBUGFLAGS := -g
 
