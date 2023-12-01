@@ -88,6 +88,27 @@ void win_setCursor( struct Window* win, unsigned int col, unsigned int row )
 {
         win->row = row;
         win->col = col;
+
+        move( win->row, win->col );
+        refresh();
+}
+
+void win_moveCursor( struct Window* win, int col, int row )
+{
+        win->row += row;
+        win->col += col;
+
+        if ( win->row > win->height - 2 )
+                win->row = win->height - 2;
+        if ( win->row < 0 )
+                win->row = 0;
+        if ( win->col < 0 )
+                win->col = 0;
+        if ( win->col > win->width )
+                win->col = win->width;
+
+        move( win->row, win->col );
+        refresh();
 }
 
 void win_setBarMsg( struct Window* win, char* msg )
@@ -108,7 +129,6 @@ static void win_drawFile( struct Window* win )
                 wprintw( win->file_win, "%s", buf );
                 i++;
         }
-        wmove( win->file_win, win->row, win->col );
 
         wrefresh( win->file_win );
 }
@@ -129,4 +149,7 @@ void win_draw( struct Window* win )
 {
         win_drawFile( win );
         win_drawBar( win );
+
+        move( win->row, win->col );
+        refresh();
 }

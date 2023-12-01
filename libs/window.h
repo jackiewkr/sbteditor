@@ -15,6 +15,8 @@ void win_setFile( struct Window* win, struct File* );
 
 void win_setCursor( struct Window* win, unsigned int col, unsigned int row );
 
+void win_moveCursor( struct Window* win, int col, int row );
+
 void win_setBarMsg( struct Window* win, char* msg );
 
 #endif
