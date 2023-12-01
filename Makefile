@@ -1,13 +1,11 @@
 CC := clang
-CFLAGS := -Weverything -pedantic
+CFLAGS := -Wall -pedantic
 INCLUDES := main.c libs/file.c
-LDFLAGS := lncurses
+LDFLAGS := -lncurses
 DEBUGFLAGS := -g
 
-CPU=$(lscpu | grep -oP 'Architecture:\s*\K.+')
-
 build: 
-	$(CC) -o sbteditor.$(CPU) $(INCLUDES) $(LDFLAGS) $(CFLAGS)
+	$(CC) -o bin/sbteditor $(INCLUDES) $(LDFLAGS) $(CFLAGS)
 
 debug: 
-	$(CC) -o sbteditor.debug_$(CPU) $(INCLUDES) $(LDFLAGS) $(CFLAGS) $(DEBUGFLAGS)
+	$(CC) -o bin/sbteditor_debug $(INCLUDES) $(LDFLAGS) $(CFLAGS) $(DEBUGFLAGS)

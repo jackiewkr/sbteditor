@@ -1,252 +1,192 @@
-/** file.c
- ** ======
- ** This file stores the objects used for storing the file during use, along
- ** with loading and saving to/from disk.
- **
- ** Jacqueline W. (2023)
- **/
-#include <stdlib.h>
-#include <string.h>
+/* file.c
+ * ======
+ * Representation of file on disk. Used for loading, saving and writing to
+ * files.
+ * Each line is stored as a linked list of characters to reduce complexity
+ * of operations such as splitting a line or deleting the start of a line to
+ * append the contents to the prev line.
+ * 
+ * By Jacqueline W.
+ * See LICENSES for licensing
+ */
 
 #include "file.h"
 
-/* strsan()
- * =================
- * Given a character buffer, sanitizes the string by removing any non-readable
- * ASCII characters and appending a null terminator.
- *
- * - input: input char buffer
- * - sz: size of input
- *
- * Returns a string literal
- */
-static char* strsan( char* input, unsigned int sz )
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#define report( msg ) fprintf( stderr, msg )
+
+static char* freadall( FILE* fptr )
 {
-        if ( input == NULL )
+        char* buf = "";
+        fseek( fptr, 0, SEEK_END );
+
+        long file_len = ftell( fptr );
+        if ( file_len == -1 )
                 return NULL;
-        unsigned int output_sz = 0;
-        char* output = NULL;
 
-        for ( unsigned int i = 0; i < sz; i++ )
-        {
-                char ch = input[i];
+        fseek( fptr, 0, SEEK_SET );
+        buf = malloc( (unsigned long)file_len + 1 );
+        if ( buf == NULL )
+                return NULL;
+        
+        fread( buf, (unsigned long)file_len, 1, fptr );
 
-                /* only copy char over if it is human readable */
-                if ( ch >= 32 && ch < 127 )
-                {
-                        output = realloc( output, ++output_sz );
-                        output[ output_sz - 1 ] = ch;
-                }
-        }
-
-        /* add nullchar at end of buffer */
-        output_sz++;
-        output = realloc( output, output_sz );
-        output[ output_sz - 1 ] = '\0';
-
-        return output;
+        buf[ file_len ] = '\0';
+        
+        return buf;
 }
 
-struct Line
+//double linked list
+struct LineChar
 {
-        int linenum; /* copy of linenum in file */
-        
-        char* line; /* char buffer of line contents ( no control characters) */
-        unsigned int size;
+        struct LineChar* next;
+
+        char data;
 };
 
-/* l_init()
- * ========
- * Constructor for Line object.
- *
- * Returns a ptr to Line object, NULL on error
- */
-static struct Line* l_init( void )
+static struct LineChar* lc_init( struct LineChar* next, char data )
 {
-        struct Line* l = malloc( sizeof(struct Line) );
-        if ( l == NULL )
-                return NULL;
+        struct LineChar* lc = malloc( sizeof(struct LineChar) );
+        lc->next = next;
+        lc->data = data;
 
-        l->line = NULL;
-        l->size = 0;
-
-        return l;
+        return lc;
 }
 
-/* l_free()
- * ========
- * Destructor for Line object. Frees any memory associated with given Line
- * object.
- *
- * - l: Line object to free
- */
-static void l_free( struct Line* l )
+static struct LineChar* lc_traverse( struct LineChar* lc )
 {
-        if ( l == NULL )
-                return;
-        
-        if ( l->line != NULL )
-                free( l->line );
+        while ( lc->next != NULL )
+                lc = lc->next;
 
-        free( l );
+        return lc;
 }
 
-/* l_addChar()
- * ===========
- * Adds a char to the given index in the line. If not at the end of the line,
- * move the contents after the index one index ahead.
- *
- * Returns 1 on success, 0 on fail
- */
-static unsigned int l_addChar( struct Line* l, char ch, unsigned int index )
+static char* lc_toStr( struct LineChar* lc )
 {
-        if ( ch >= 32 && ch < 127 && l != NULL &&
-             index < l->size+1 && index > 0 )
+        char* buf = NULL;
+        unsigned int sz = 0;
+
+        while ( lc != NULL )
         {
-                l->line = realloc( l->line, l->size+1 );
-        
-                if ( index != l->size )
-                {
-                        memmove( &l->line[index+1], &l->line[index],
-                                 l->size + 1 - index );
-                }
-
-                l->line[index] = ch;
-                l->size++;
+                buf = realloc( buf, ++sz );
+                buf[sz-1] = lc->data;
                 
-                return 1;
+                lc = lc->next;
         }
-        return 0;
-}
 
-/* l_delChar()
- * ===========
- * Deletes a character from the given index in the line. If not at the end
- * of the line, move the contents after the index one index before.
- *
- * Returns 1 on success, 0 on fail
- */
-static unsigned int l_delChar( struct Line* l, char ch, unsigned int index )
-{
-        if ( ch >= 32 && ch < 127 && l != NULL &&
-             index < l->size && index > 0 )
-        {
-                if ( index != l->size-1 )
-                {
-                        memmove( &l->line[index], &l->line[index + 1],
-                                 l->size + 1 - index );
-                }
-
-                l->line = realloc( l->line, l->size-1 );
-                l->size--;
-
-                return 1;
-        }
-        return 0;
-}
-
-/* l_getContents()
- * ===============
- * Copies the contents of the line to a newly allocated char buffer and
- * converts char buffer to string literal. Free buffer after use
- *
- * Returns a string literal
- */
-char* l_getContents( struct Line* l )
-{
-        char* string = strsan( l->line, l->size );
-
-        return string;
+        buf = realloc( buf, ++sz );
+        buf[sz-1] = '\0';
+        return buf;
 }
 
 struct File
 {
-        struct Line** lines;
-        int size;
+        struct LineChar** lines;        //lines in file
+        unsigned int sz;                //number of lines in file
 
-        char* name;
+        char* loc;                      //location on disk
 };
 
-struct File* f_init( char* name )
+//TODO: resize more efficiently, allow resize to be smaller
+static void file_resize( struct File* file )
 {
-        struct File* f = malloc( sizeof(struct File) );
-        if ( f == NULL )
-                return NULL;
+        file->lines = realloc( file->lines, 
+                               sizeof(struct LineChar*) * ++file->sz );
+        if ( file->lines == NULL )
+                report( "Failed to realloc() file!\n" );
 
-        f->lines = NULL;
-        f->size = 0;
-        if ( name == NULL )
-                f->name = "Newfile\0";
-        else
-        {
-                /* sanitise input */
-                name = strsan( name, strlen( name ) );
-                f->name = malloc( strlen( name ) );
-                memcpy( f->name, name, strlen( name ) );
-        }
-
-        return f;
 }
 
-void f_free( struct File* f )
-{
-        if ( f->lines != NULL )
-        {
-                for ( int i = 0; i < f->size; i++ )
-                        l_free( f->lines[i] );
-        }
-        if ( f->name != NULL )
-                free( f->name );
 
-        free( f );
-}
-
-/* void f_resize()
- * ===============
- * Resizes the memory allocated to f->lines by +-size amount. Will throw error
- * if resizing down and the end indices are still allocated.
- *
- * Returns 0 on success, -1 on error.
+/* __file_populate() : STATIC
+ * ==========================
+ * Populates the file with the contents given by file->loc.
  */
-static int f_resize( struct File* f, int size )
+static void file_populate( struct File* file )
 {
-        int retval = 0; /* assume success */
-        if ( size < 0 )
+        FILE* fptr = fopen( file->loc, "r" );
+        char* file_buf = freadall( fptr );
+        
+        //iterate through each line in file
+        char* line = strtok( file_buf, "\n" );
+        do
         {
-                /* check if end indices are still populated */
-                for ( unsigned int i = (f->size - size);
-                      i < (unsigned int)f->size; i++ )
+                file_resize( file );
+                //add each char to file struct
+                for ( int i = 0; i < strlen( line ); i++ )
                 {
-                        if ( f->lines[i] != NULL )
-                                retval = -1;
-                }
+                        struct LineChar* head = file->lines[file->sz - 1];
+                        if ( head != NULL )
+                        {
+                                //if line isnt empty, traverse to last node
+                                head = lc_traverse( head );
 
-                if ( retval != -1 )
+                                head->next = lc_init( NULL, line[i] );
+
+                        } 
+                        else
+                        {
+                                file->lines[file->sz - 1] = lc_init( NULL, 
+                                                            line[i] );
+                        }
+                }
+        }
+        while ( ( line = strtok( NULL, "\n" ) ) != NULL  );
+}
+
+struct File* file_init( const char* loc )
+{
+        struct File* file = malloc( sizeof(struct File) );
+        if ( file == NULL)
+                report( "File failed to malloc()!\n" );
+
+        file->lines = NULL;
+        file->sz = 0;
+
+        //check if loc is given
+        if ( loc != NULL )
+        {
+                //if file exists, copy content to file
+                file->loc = (char*)loc;
+                if ( access( loc, F_OK ) == 0 )
+                        file_populate( file );
+        }
+        else
+                file->loc = NULL;
+
+        return file;
+}
+
+void file_free( struct File* file )
+{
+
+        for ( int i = 0; i < file->sz; i++ )
+        {
+                struct LineChar* lc = file->lines[i];
+                struct LineChar* lc_next = lc->next;
+                while ( lc_next != NULL )
                 {
-                        
+                        free( lc );
+                        lc = lc_next;
                 }
         }
-        else if ( size > 0 )
-        {
-                
-        }
-
-        return retval;
+        free( file );
 }
 
-static void f_createLine( struct File* f, unsigned int linenum )
+char* file_getLine( struct File* file, unsigned int line_num )
 {
-        if ( linenum == (unsigned int)( f->size + 1 ) ) /* at the end of file,
-                                                         * no need to move
-                                                         * lines */
-        {
-                
-        }
+        if ( file == NULL || line_num >= file->sz )
+                return NULL;
+        return lc_toStr( file->lines[line_num] );
 }
 
-
-void f_addChar( struct File* f, int linenum, char* ch )
+unsigned int file_getLength( struct File* file )
 {
-
+        return file->sz;
 }
+
 
